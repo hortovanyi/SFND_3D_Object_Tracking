@@ -1,4 +1,3 @@
-
 #include <numeric>
 #include "matching2D.hpp"
 
@@ -14,12 +13,16 @@ void matchDescriptors(std::vector<cv::KeyPoint> &kPtsSource, std::vector<cv::Key
 
     if (matcherType.compare("MAT_BF") == 0)
     {
-        int normType = cv::NORM_HAMMING;
+        int normType = cv::NORM_HAMMING; // used for ORB, BRISK and BRIEF 
+        if (descriptorType.compare("SIFT") == 0){
+            normType = cv::NORM_L2;
+        }        
+
         matcher = cv::BFMatcher::create(normType, crossCheck);
     }
     else if (matcherType.compare("MAT_FLANN") == 0)
     {
-        // ...
+        matcher = cv::FlannBasedMatcher::create();
     }
 
     // perform matching task
@@ -31,7 +34,19 @@ void matchDescriptors(std::vector<cv::KeyPoint> &kPtsSource, std::vector<cv::Key
     else if (selectorType.compare("SEL_KNN") == 0)
     { // k nearest neighbors (k=2)
 
-        // ...
+        int k = 2;
+        std::vector<std::vector<cv::DMatch>> knn_matches;
+        matcher->knnMatch(descSource, descRef, knn_matches, k);
+        
+        //-- Filter matches using the Lowe's ratio test
+        const float ratio_thresh = 0.8f;
+        for (size_t i = 0; i < knn_matches.size(); i++)
+        {
+            if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance)
+            {
+                matches.push_back(knn_matches[i][0]);
+            }
+        }
     }
 }
 
@@ -48,18 +63,62 @@ void descKeypoints(vector<cv::KeyPoint> &keypoints, cv::Mat &img, cv::Mat &descr
         float patternScale = 1.0f; // apply this scale to the pattern used for sampling the neighbourhood of a keypoint.
 
         extractor = cv::BRISK::create(threshold, octaves, patternScale);
-    }
-    else
+    } 
+    else if (descriptorType.compare("BRIEF") == 0)
     {
-
-        //...
+        extractor = cv::xfeatures2d::BriefDescriptorExtractor::create();
     }
+    else if (descriptorType.compare("ORB") == 0)
+    {
+        int 	nfeatures = 500;
+        float 	scaleFactor = 1.2f;
+        int 	nlevels = 8;
+        int 	edgeThreshold = 31;
+        int 	firstLevel = 0;
+        int 	WTA_K = 2;
+        // cv::ORB::ScoreType 	scoreType = cv::ORB::HARRIS_SCORE;
+        cv::ORB::ScoreType 	scoreType = cv::ORB::FAST_SCORE;
+        int 	patchSize = 31;
+        int 	fastThreshold = 20;
 
+        extractor = cv::ORB::create(nfeatures, scaleFactor, nlevels, edgeThreshold, firstLevel, WTA_K, scoreType, patchSize, fastThreshold);
+    }
+    else if (descriptorType.compare("FREAK") == 0)
+    {
+        bool 	orientationNormalized = true;
+        bool 	scaleNormalized = true;
+        float 	patternScale = 22.0f;
+        int 	nOctaves = 4;
+        extractor = cv::xfeatures2d::FREAK::create(orientationNormalized, scaleNormalized, patternScale,nOctaves);
+    }
+    else if (descriptorType.compare("AKAZE") == 0)
+    {
+        cv::AKAZE::DescriptorType 	descriptor_type = cv::AKAZE::DESCRIPTOR_MLDB;
+        int 	descriptor_size = 0;
+        int 	descriptor_channels = 3;
+        float 	threshold = 0.001f;
+        int 	nOctaves = 4;
+        int 	nOctaveLayers = 4;
+        cv::KAZE::DiffusivityType 	diffusivity = cv::KAZE::DIFF_PM_G2; 
+
+        extractor = cv::AKAZE::create(descriptor_type, descriptor_size, descriptor_channels, threshold, nOctaves, nOctaveLayers, diffusivity);
+    }
+    else if (descriptorType.compare("SIFT") == 0)
+    {
+        int 	nfeatures = 0;
+        int 	nOctaveLayers = 3;
+        double 	contrastThreshold = 0.04;
+        double 	edgeThreshold = 10;
+        double 	sigma = 1.6;
+
+        extractor = cv::SIFT::create(nfeatures, nOctaveLayers, contrastThreshold,edgeThreshold, sigma);
+
+    }
     // perform feature description
     double t = (double)cv::getTickCount();
     extractor->compute(img, keypoints, descriptors);
     t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
-    cout << descriptorType << " descriptor extraction in " << 1000 * t / 1.0 << " ms" << endl;
+    std::cout << descriptorType << " descriptor extraction in " << 1000 * t / 1.0 << " ms" << endl;
 }
 
 // Detect keypoints in image using the traditional Shi-Thomasi detector
@@ -89,7 +148,7 @@ void detKeypointsShiTomasi(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool b
         keypoints.push_back(newKeyPoint);
     }
     t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
-    cout << "Shi-Tomasi detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+    std::cout << "Shi-Tomasi detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
 
     // visualize results
     if (bVis)
@@ -98,6 +157,224 @@ void detKeypointsShiTomasi(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool b
         cv::drawKeypoints(img, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
         string windowName = "Shi-Tomasi Corner Detector Results";
         cv::namedWindow(windowName, 6);
+        imshow(windowName, visImage);
+        cv::waitKey(0);
+    }
+}
+
+// Detect keypoints in image using the Harris Corner detector
+void detKeypointsHarris(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool bVis)
+{
+
+    // Detector parameters
+    int blockSize = 2; // for every pixel, a blockSize × blockSize neighborhood is considered
+    int apertureSize = 3; // aperture parameter for Sobel operator (must be odd)
+    int minResponse = 100; // minimum value for a corner in the 8bit scaled response matrix
+    double k = 0.04; // Harris parameter (see equation for details)
+    double maxOverlap = 0.0; // max. permissible overlap between two features in %, used during non-maxima suppression
+
+    // Apply corner detection
+    double t = (double)cv::getTickCount();
+    cv::Mat dst, dst_norm, dst_norm_scaled;
+    dst = cv::Mat::zeros(img.size(), CV_32FC1);
+    cv::cornerHarris(img, dst, blockSize, apertureSize, k, cv::BORDER_DEFAULT);
+    cv::normalize(dst, dst_norm, 0, 255, cv::NORM_MINMAX, CV_32FC1, cv::Mat());
+    cv::convertScaleAbs(dst_norm, dst_norm_scaled);
+
+    // Look for prominent corners and instantiate keypoints
+    for (size_t j = 0; j < dst_norm.rows; j++)
+    {
+        for (size_t i = 0; i < dst_norm.cols; i++)
+        {
+            int response = (int)dst_norm.at<float>(j, i);
+            if (response > minResponse)
+            { // only store points above a threshold
+
+                cv::KeyPoint newKeyPoint;
+                newKeyPoint.pt = cv::Point2f(i, j);
+                newKeyPoint.size = 2 * apertureSize;
+                newKeyPoint.response = response;
+
+                // perform non-maximum suppression (NMS) in local neighbourhood around new key point
+                bool bOverlap = false;
+                for (auto it = keypoints.begin(); it != keypoints.end(); ++it)
+                {
+                    double kptOverlap = cv::KeyPoint::overlap(newKeyPoint, *it);
+                    if (kptOverlap > maxOverlap)
+                    {
+                        bOverlap = true;
+                        if (newKeyPoint.response > (*it).response)
+                        {                      // if overlap is >t AND response is higher for new kpt
+                            *it = newKeyPoint; // replace old key point with new one
+                            break;             // quit loop over keypoints
+                        }
+                    }
+                }
+                if (!bOverlap)
+                {                                     // only add new key point if no overlap has been found in previous NMS
+                    keypoints.push_back(newKeyPoint); // store new keypoint in dynamic list
+                }
+            }
+        } // eof loop over cols
+    }     // eof loop over rows
+    
+    t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+    std::cout << "Harris detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+
+    // visualize results
+    if (bVis)
+    {
+        cv::Mat visImage = dst_norm_scaled.clone();
+        cv::drawKeypoints(dst_norm_scaled, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+        string windowName = "Harris Corner Detector Results";
+        cv::namedWindow(windowName, 6);
+        imshow(windowName, visImage);
+        cv::waitKey(0);
+    }
+}
+
+// Detect keypoints in image using the FAST detector
+void detKeypointsFAST(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool bVis)
+{
+    int threshold = 10;
+    bool nonmaxSupression = true;
+
+    // Apply corner detection
+    double t = (double)cv::getTickCount();
+    cv::FAST(img, keypoints, threshold, nonmaxSupression);
+
+    t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+    std::cout << "FAST detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+
+    // visualize results
+    if (bVis)
+    {
+        cv::Mat visImage = img.clone();
+        cv::drawKeypoints(img, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+        string windowName = "FAST Corner Detector Results";
+        cv::namedWindow(windowName, 6);
+        imshow(windowName, visImage);
+        cv::waitKey(0);
+    }
+}
+
+// Detect keypoints in image using the BRISK detector
+void detKeypointsBRISK(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool bVis)
+{
+    int threshold = 30;
+    int octaves = 3;
+    float patternScale = 1.0f;
+
+    // Apply corner detection
+    double t = (double)cv::getTickCount();
+    auto detector = cv::BRISK::create(threshold, octaves,patternScale);
+    detector->detect(img,keypoints);
+
+    t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+    std::cout << "BRISK detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+
+    // visualize results
+    if (bVis)
+    {
+        cv::Mat visImage = img.clone();
+        cv::drawKeypoints(img, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+        string windowName = "BRISK Corner Detector Results";
+        cv::namedWindow(windowName, 6);
+        imshow(windowName, visImage);
+        cv::waitKey(0);
+    }
+}
+
+// Detect keypoints in image using the ORB detector
+void detKeypointsORB(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool bVis)
+{
+    int 	nfeatures = 500;
+    float 	scaleFactor = 1.2f;
+    int 	nlevels = 8;
+    int 	edgeThreshold = 31;
+    int 	firstLevel = 0;
+    int 	WTA_K = 2;
+    cv::ORB::ScoreType 	scoreType = cv::ORB::HARRIS_SCORE;
+    // cv::ORB::ScoreType 	scoreType = cv::ORB::FAST_SCORE;
+    int 	patchSize = 31;
+    int 	fastThreshold = 20; 
+
+
+    // Apply corner detection
+    double t = (double)cv::getTickCount();
+    auto detector = cv::ORB::create(nfeatures, scaleFactor, nlevels, edgeThreshold, firstLevel, WTA_K, scoreType, patchSize, fastThreshold);
+    detector->detect(img,keypoints);
+
+    t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+    std::cout << "ORB detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+
+    // visualize results
+    if (bVis)
+    {
+        cv::Mat visImage = img.clone();
+        cv::drawKeypoints(img, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+        string windowName = "ORB Corner Detector Results";
+        cv::namedWindow(windowName, 6);
+        imshow(windowName, visImage);
+        cv::waitKey(0);
+    }
+}
+
+// Detect keypoints in image using the AKAZE detector
+void detKeypointsAKAZE(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool bVis)
+{
+    cv::AKAZE::DescriptorType 	descriptor_type = cv::AKAZE::DESCRIPTOR_MLDB;
+    int 	descriptor_size = 0;
+    int 	descriptor_channels = 3;
+    float 	threshold = 0.001f;
+    int 	nOctaves = 4;
+    int 	nOctaveLayers = 4;
+    cv::KAZE::DiffusivityType 	diffusivity = cv::KAZE::DIFF_PM_G2; 
+
+    // Apply corner detection
+    double t = (double)cv::getTickCount();
+    auto detector = cv::AKAZE::create(descriptor_type, descriptor_size, descriptor_channels, threshold, nOctaves, nOctaveLayers, diffusivity);
+    detector->detect(img,keypoints);
+
+    t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+    std::cout << "AKAZE detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+
+    // visualize results
+    if (bVis)
+    {
+        cv::Mat visImage = img.clone();
+        cv::drawKeypoints(img, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+        string windowName = "AKAZE Corner Detector Results";
+        cv::namedWindow(windowName, 6);
+        imshow(windowName, visImage);
+        cv::waitKey(0);
+    }
+}
+
+// Detect keypoints in image using the SIFT detector
+void detKeypointsSIFT(vector<cv::KeyPoint> &keypoints, cv::Mat &img, bool bVis)
+{	
+    int 	nfeatures = 0;
+    int 	nOctaveLayers = 3;
+    double 	contrastThreshold = 0.04;
+    double 	edgeThreshold = 10;
+    double 	sigma = 1.6;
+
+    // Apply corner detection
+    double t = (double)cv::getTickCount();
+    auto detector = cv::SIFT::create(nfeatures, nOctaveLayers, contrastThreshold,edgeThreshold, sigma);
+    detector->detect(img,keypoints);
+
+    t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+    std::cout << "SIFT detection with n=" << keypoints.size() << " keypoints in " << 1000 * t / 1.0 << " ms" << endl;
+
+    // visualize results
+    if (bVis)
+    {
+        cv::Mat visImage = img.clone();
+        cv::drawKeypoints(img, keypoints, visImage, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+        string windowName = "SIFT Corner Detector Results";
+        cv::namedWindow(windowName, cv::WINDOW_AUTOSIZE);
         imshow(windowName, visImage);
         cv::waitKey(0);
     }
