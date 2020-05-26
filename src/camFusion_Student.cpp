@@ -2,6 +2,7 @@
 #include <iostream>
 #include <algorithm>
 #include <numeric>
+#include <set>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
@@ -154,5 +155,55 @@ void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
 
 void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bbBestMatches, DataFrame &prevFrame, DataFrame &currFrame)
 {
-    // ...
+    typedef  std::multimap<cv::DMatch, int> MatchBBmmap;
+    MatchBBmmap prevMatchBB, currMatchBB;
+    
+    for (cv::DMatch match: matches) {
+
+        // extract the keypoint to match on
+        cv::KeyPoint prev_kp = prevFrame.keypoints[match.queryIdx];
+        cv::KeyPoint curr_kp = currFrame.keypoints[match.trainIdx];
+
+        // find the bounding boxes in prev and curr that encloses the match keypoint 
+        auto bb_enclosed = [match] (cv::KeyPoint kp_match, DataFrame *frame, MatchBBmmap *matchBB) {
+            for (auto bb: frame->boundingBoxes)
+                if (bb.roi.contains(kp_match.pt))
+                    matchBB->insert({match, bb.boxID});
+        };   
+
+        bb_enclosed(prev_kp, &prevFrame, &prevMatchBB);
+        bb_enclosed(curr_kp, &currFrame, &currMatchBB);
+    }
+
+    // match the current and previous box ids by a common descriptor match to create a box id pair map
+    std::map<std::pair<int,int>, std::set<cv::DMatch>> boxIdsMap;
+    for (auto it_curr = currMatchBB.begin(); it_curr != currMatchBB.end();++it_curr){
+        cv::DMatch dmatch = it_curr->first;
+        int boxID_curr = it_curr->second;
+
+        for (auto it_prev = prevMatchBB.find(dmatch); it_prev != prevMatchBB.end(); ++it_prev) {
+            int boxID_prev = it_prev->second;
+            std::pair<int, int> boxIDpair = std::make_pair(boxID_curr, boxID_prev);
+            boxIdsMap[boxIDpair].insert(dmatch);
+        }
+    }
+
+    // pair size and total matches;
+    long match_total = 0L;
+    std::map<std::pair<int, int>, size_t> boxIdsPairSizeMap;
+    for (auto it = boxIdsMap.begin(); it != boxIdsMap.end(); ++it) {
+        size_t size = it->second.size();
+        match_total += size;
+        boxIdsPairSizeMap[it->first] = size;
+    }
+
+    // use those box ids where the size is greater as avergage as the best matches
+    int avg = floor(match_total/boxIdsPairSizeMap.size());
+    for (auto it = boxIdsPairSizeMap.begin(); it!= boxIdsPairSizeMap.end(); ++ it) {
+        if (it->second >= avg) {
+            bbBestMatches.insert(it->first);
+        }
+    }
+
+
 }
