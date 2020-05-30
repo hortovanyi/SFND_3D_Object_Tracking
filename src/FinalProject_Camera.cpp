@@ -23,6 +23,84 @@
 
 using namespace std;
 
+void showLidarTopview(vector<LidarPoint> &lidarPoints, string name)
+{
+    cv::Size worldSize(10.0, 20.0); // width and height of sensor field in m
+    cv::Size imageSize(1000, 2000); // corresponding top view image in pixel
+
+    // create topview image
+    cv::Mat topviewImg(imageSize, CV_8UC3, cv::Scalar(0, 0, 0));
+
+    // plot Lidar points into image
+    for (auto it = lidarPoints.begin(); it != lidarPoints.end(); ++it)
+    {
+        float xw = (*it).x; // world position in m with x facing forward from sensor
+        float yw = (*it).y; // world position in m with y facing left from sensor
+
+        int y = (-xw * imageSize.height / worldSize.height) + imageSize.height;
+        int x = (-yw * imageSize.height / worldSize.height) + imageSize.width / 2;
+
+        float colourFactor = 255.0/worldSize.height;
+        float X = abs(xw);
+        cv::circle(topviewImg, cv::Point(x, y), 5, cv::Scalar(0, colourFactor * X, colourFactor * (worldSize.height- X)), -1);
+    }
+
+    // plot distance markers
+    float lineSpacing = 2.0; // gap between distance markers
+    int nMarkers = floor(worldSize.height / lineSpacing);
+    for (size_t i = 0; i < nMarkers; ++i)
+    {
+        int y = (-(i * lineSpacing) * imageSize.height / worldSize.height) + imageSize.height;
+        cv::line(topviewImg, cv::Point(0, y), cv::Point(imageSize.width, y), cv::Scalar(255, 0, 0));
+    }
+
+    // display image
+    string windowName = "Top-View Perspective of LiDAR data - " + name;
+    cv::namedWindow(windowName, 2);
+    cv::imshow(windowName, topviewImg);
+    cv::waitKey(0); // wait for key to be pressed
+
+}
+
+void filterLidarPointXOutliers(vector<LidarPoint> &lidarPoints) {
+    // calculate mean of x
+    double xTotal = 0.0;
+    for (auto lp: lidarPoints){
+        xTotal += lp.x;
+    }
+
+    double mean = xTotal/lidarPoints.size();
+
+    // calculate standard deviation - sigma
+    auto add_square = [mean] (double sum, double i)
+    {
+        auto d = i - mean;
+        return sum + d*d;
+    };
+
+    double varianceTotal = 0.0;
+    for (auto lp:lidarPoints)
+        varianceTotal = add_square(varianceTotal, lp.x);
+    double variance = varianceTotal / lidarPoints.size();
+    double sigma = sqrt(variance);
+
+    cout <<"filter lidarPoints.size(): " << lidarPoints.size(); 
+    cout <<" mean: " << mean << " variance: " << variance <<" sigma: " << sigma << endl;
+
+    for (auto it = lidarPoints.begin(); it != lidarPoints.end(); ++it) {
+        double d = (double)it->x -mean;
+        // only interestesd in removing outliers between ego and lidarpoints mean X
+        if (d>=0)
+            continue;
+        // remove outliers - those that are greater then 2 standard deviations
+        if (fabs(d) > sigma *2 ) {
+            cout << "outlier - d: " << d << " ("<<it->x<<","<<it->y<<","<<it->z<<")"<<endl; 
+            lidarPoints.erase(it);
+        }
+    }
+}
+
+
 /* MAIN PROGRAM */
 int main(int argc, const char *argv[])
 {
@@ -132,7 +210,8 @@ int main(int argc, const char *argv[])
         clusterLidarWithROI((dataBuffer.end()-1)->boundingBoxes, (dataBuffer.end() - 1)->lidarPoints, shrinkFactor, P_rect_00, R_rect_00, RT);
 
         // Visualize 3D objects
-        bVis = true;
+        bVis = false;
+        // bVis = true;
         if(bVis)
         {
             show3DObjects((dataBuffer.end()-1)->boundingBoxes, cv::Size(4.0, 20.0), cv::Size(2000, 2000), true);
@@ -280,11 +359,24 @@ int main(int argc, const char *argv[])
                     }
                 }
 
+
                 // compute TTC for current match
                 if( currBB->lidarPoints.size()>0 && prevBB->lidarPoints.size()>0 ) // only compute TTC if we have Lidar points
                 {
                     //// STUDENT ASSIGNMENT
                     //// TASK FP.2 -> compute time-to-collision based on Lidar data (implement -> computeTTCLidar)
+                    filterLidarPointXOutliers(prevBB->lidarPoints);
+                    filterLidarPointXOutliers(currBB->lidarPoints);
+                    bVis = true;
+                    if (bVis) {
+                        cout << "showLidarTopView currBB" << endl;
+                        showLidarTopview(currBB->lidarPoints, "currBB->lidarPoints");
+                        cout << "showLidarTopView prevBB" << endl;
+                        showLidarTopview(prevBB->lidarPoints, "prevBB->lidarPoints");
+                        cout << "showLidarTopView continuing ..." << endl;
+                    }
+                    bVis = false;
+
                     double ttcLidar; 
                     computeTTCLidar(prevBB->lidarPoints, currBB->lidarPoints, sensorFrameRate, ttcLidar);
                     //// EOF STUDENT ASSIGNMENT
