@@ -143,13 +143,13 @@ void clusterKptMatchesWithROI(BoundingBox &boundingBox, std::vector<cv::KeyPoint
     double distanceTotal;
 
     auto match_distance = [kptsPrev, kptsCurr](const cv::DMatch &dmatch) -> double {
-        // // extract the keypoint to match on
-        // cv::Point2f prev_pt = kptsPrev[dmatch.queryIdx].pt;
-        // cv::Point2f curr_pt = kptsCurr[dmatch.trainIdx].pt;
+        // extract the keypoint to match on - this is faster then cv::norm
+        cv::Point2f prev_pt = kptsPrev[dmatch.queryIdx].pt;
+        cv::Point2f curr_pt = kptsCurr[dmatch.trainIdx].pt;
 
-        // cv::Point2f diff = prev_pt - curr_pt;
-        // return cv::sqrt(diff.x*diff.x + diff.y*diff.y);
-        return cv::norm(kptsCurr[dmatch.trainIdx].pt - kptsPrev[dmatch.queryIdx].pt);
+        cv::Point2f diff = prev_pt - curr_pt;
+        return cv::sqrt(diff.x*diff.x + diff.y*diff.y);
+        // return cv::norm(kptsCurr[dmatch.trainIdx].pt - kptsPrev[dmatch.queryIdx].pt);
     };
 
     for (const auto dmatch: kptMatches){
@@ -285,16 +285,16 @@ void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
 
 void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bbBestMatches, DataFrame &prevFrame, DataFrame &currFrame)
 {
-    typedef std::map<cv::DMatch, int> MatchBBMaxOccurenceMap;
-    typedef std::map<cv::DMatch, std::set<int>> MatchBBsMap;
-    typedef std::map<int, std::set<cv::DMatch>> BBMatchesMmap;
-    typedef std::map<int, size_t> BBDmatchOccurenceMap;
+    typedef std::map<int, size_t> BBKPOccurenceMap;
     typedef std::map<std::pair<int,int>, size_t> BBsMatchesMap;
+    typedef std::set<int> BoxIdSet;
     
-    MatchBBsMap prevMatchBBs, currMatchBBs;
-    BBMatchesMmap prevBBMatches, currBBMatches;
-    BBDmatchOccurenceMap prevBoxSizes, currBoxSizes;
+    BBKPOccurenceMap prevBoxSizes, currBoxSizes;
 
+    BoxIdSet prevBoxIdSet, currBoxIdSet;
+
+    BBsMatchesMap boundingBoxesMatches;
+    
     for (cv::DMatch dmatch: matches) {
 
         // extract the keypoint to match on
@@ -302,89 +302,49 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
         cv::KeyPoint curr_kp = currFrame.keypoints[dmatch.trainIdx];
 
         // find the bounding boxes in prev and curr that encloses the match keypoint 
-        auto bb_enclosed = [dmatch] (cv::KeyPoint kp_match, DataFrame *frame, MatchBBsMap &matchBBs, BBMatchesMmap &BBMatches) {
+        auto bb_enclosed = [dmatch] (cv::KeyPoint kp_match, DataFrame *frame, BoxIdSet &boxIdSet, BBKPOccurenceMap &boxSizes) { 
             for (auto bb: frame->boundingBoxes)
                 if (bb.roi.contains(kp_match.pt)) {
-                    matchBBs[dmatch].insert(bb.boxID);
-                    BBMatches[bb.boxID].insert(dmatch);
+                    boxIdSet.insert(bb.boxID);
+                    boxSizes[bb.boxID]+=1;
                 }
         };   
 
-        bb_enclosed(prev_kp, &prevFrame, prevMatchBBs, prevBBMatches);
-        bb_enclosed(curr_kp, &currFrame, currMatchBBs, currBBMatches);
-    }
+        BoxIdSet prevBoxIdSetMatch, currBoxIdSetMatch;
+        bb_enclosed(prev_kp, &prevFrame, prevBoxIdSetMatch, prevBoxSizes);
+        bb_enclosed(curr_kp, &currFrame, currBoxIdSetMatch, currBoxSizes);
 
-    // create a boxid to number of matches lookup
-    cout << "prev boxId (dmatch size)s:";
-    for(auto x: prevBBMatches) {
-        prevBoxSizes[x.first]=x.second.size();
-        cout <<" "<< x.first << " (" << x.second.size() << ")";
-    }
-    cout << endl;
-    cout << "curr boxId (dmatch size)s:";
-    for(auto x: currBBMatches) {
-        currBoxSizes[x.first]=x.second.size();
-        cout <<" "<< x.first << " (" << x.second.size() << ")";
-    }
-    cout << endl;
-
-    // create a Dmatch to number of boxids lookup
-    std::map<cv::DMatch, size_t> prevDmatchSizes, currDmatchSizes;
-    for(auto x: prevMatchBBs) {
-        prevDmatchSizes[x.first]=x.second.size();
-    }
-    for(auto x: prevMatchBBs) {
-        currDmatchSizes[x.first]=x.second.size();
-    }
-
-
-    // only use the boxid that encloses a dmatch with having the highest number of keypoint matches
-    auto max_occurence = [](MatchBBsMap matchBBs, BBDmatchOccurenceMap boxSizes, MatchBBMaxOccurenceMap &matchBBMaxOccurence) {
-        for (auto x: matchBBs) {
-            auto dmatch = x.first;
-            auto boxIDs = x.second;
-
-            int maxOccurenceBoxId = -1; 
-            size_t maxOccurence = 0;
-            for (int id: boxIDs){
-                int occurence = boxSizes[id];
-                if (occurence>maxOccurence) {
-                    maxOccurence=occurence;
-                    maxOccurenceBoxId=id;
-                }
+        for (int prevBoxId: prevBoxIdSetMatch) {
+            for (int currBoxId: currBoxIdSetMatch) {
+                boundingBoxesMatches[{prevBoxId, currBoxId}]+=1;
             }
-
-            // store the max occurence
-            if (maxOccurenceBoxId>=0)
-                matchBBMaxOccurence[dmatch]=maxOccurenceBoxId;
         }
-    };
+        // update the overall sets of box ids
+        for (int id: prevBoxIdSetMatch)
+            prevBoxIdSet.insert(id);
+        for (int id: currBoxIdSetMatch)
+            currBoxIdSet.insert(id);
+    }
 
-    MatchBBMaxOccurenceMap prevMatchBBMax, currMatchBBMax;
-    max_occurence(prevMatchBBs, prevBoxSizes, prevMatchBBMax);
-    max_occurence(currMatchBBs, currBoxSizes, currMatchBBMax);
+    // boxid occcurence
+    cout << "prev boxId (KeyPoint size)s:";
+    for(auto x: prevBoxSizes) {
+        cout <<" "<< x.first << " (" << x.second << ")";
+    }
+    cout << endl;
+    cout << "curr boxId (KeyPoint size)s:";
+    for(auto x: currBoxSizes) {
+        cout <<" "<< x.first << " (" << x.second << ")";
+    }
+    cout << endl;
 
+    cout << "bounding box max keypoints {prev,curr} (n_keypoints):";
+    for (auto x: boundingBoxesMatches) {
+        int prev_box_id = x.first.first;
+        int curr_box_id = x.first.second;
+        size_t n_matches = x.second;
 
-    // create the best box matches 
-    BBsMatchesMap boundingBoxesMatches;
-    std::set<int> prevBoxIdSet, currBoxIdSet;
-    cout << "bounding box max matches {prev,curr} (n_dmatches):";
-    for (auto x: currMatchBBMax) {
-        cv::DMatch dmatch = x.first;
-        int curr_box_id = x.second;
-        int prev_box_id = prevMatchBBMax[dmatch];
-
-        // sum how many bouding boxs this descriptor match is in
-        size_t n_dmatches = prevDmatchSizes[dmatch] + currDmatchSizes[dmatch];
-        auto id_pair = std::make_pair(prev_box_id, curr_box_id);
-
-        // only interested in the max occurence feature for a box id pair
-        if (n_dmatches > boundingBoxesMatches[id_pair]) {
-            boundingBoxesMatches[id_pair]=n_dmatches;
-            prevBoxIdSet.insert(prev_box_id);
-            currBoxIdSet.insert(curr_box_id);
-            cout << " {" <<prev_box_id <<","<<curr_box_id<<"}("<<n_dmatches<<")";  
-        }
+        cout << " {" <<prev_box_id <<","<<curr_box_id<<"}("<<n_matches<<")";  
     }
     cout << endl;
 
@@ -400,45 +360,80 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
     }
     cout <<endl;
 
-    cout << "boundingBoxesMatches:";
-    for (auto x: boundingBoxesMatches) {
-        cout << " {" << x.first.first << "," <<x.first.second << "}(" << x.second<< ")";
-    }
-    cout <<endl;
 
-    // find the best match from prev to curr by selecting the curr with the most matches 
+    // want to match from the BB with the most number of matches to lowest number 
+    auto valueDescCompFunctor = [](pair<int,int> a, pair<int,int> b) {
+        return a.second > b.second;
+    };
+    set<pair<int, int>, decltype(valueDescCompFunctor)> prevBoxIdKeyPointCountDescending(valueDescCompFunctor);
+    for (auto x: prevBoxSizes){
+        int boxId = x.first;
+        size_t count = x.second;
+        prevBoxIdKeyPointCountDescending.insert({boxId, count});
+    } 
+
+    cout << "prevBoxIdKeyPointCountDescending boxId (matches):";
+    for (auto x: prevBoxIdKeyPointCountDescending) {
+        cout << " " << x.first << " ("<< x.second<<")"; 
+    }
+    cout << endl;
+
+
+    // find the best match from prev to curr by selecting the curr with the most matches of the same classID 
     std::set<int> remainingCurrBoxIdSet = currBoxIdSet;
-    for (auto id: prevBoxIdSet) {
+    for (auto boxIdCount: prevBoxIdKeyPointCountDescending) {
+        int id = boxIdCount.first;
+
         int currBoxIdBest = -1;
         size_t bestMatches = 0;
+        cout << "matching prevBoxId: " << id;
         for (auto x: boundingBoxesMatches){
             // look for a prev box id match
             int prevBoxId = x.first.first;
             int currBoxId = x.first.second;
-            // continue to the next if we've already used this curr box id
-            if (remainingCurrBoxIdSet.count(currBoxId)==0)
-                continue;
             size_t n_matches = x.second;
-            if (prevBoxId == id && n_matches >bestMatches) {
+            // only use prev BB matches 
+            if (prevBoxId != id)
+                continue;
+
+            cout << " {"<< prevBoxId << "," << currBoxId <<"}("<< n_matches <<")";  
+
+            // only interested in the same classIds ie cars
+            if (prevFrame.boundingBoxes[prevBoxId].classID != currFrame.boundingBoxes[currBoxId].classID) {
+                cout << "?";
+                continue;
+            }
+
+            // continue to the next if we've already used this curr box id
+            if (remainingCurrBoxIdSet.count(currBoxId)==0) {
+                cout << "x";
+                continue;
+            }
+
+            // want the best
+            if (n_matches >=bestMatches) {
+                cout << "<-";
                 currBoxIdBest = currBoxId;
                 bestMatches = n_matches;
             }
         }
         // use the best curr match if one found and has not already be assigned
         if (currBoxIdBest>=0 && remainingCurrBoxIdSet.count(currBoxIdBest)>0){
-            bbBestMatches.insert({id, currBoxIdBest});
+            auto ids = make_pair(id,currBoxIdBest);
+            cout << " currBoxIdBest: " << currBoxIdBest << " matches (shared, prev, curr): (";
+            cout << boundingBoxesMatches[ids] <<", " << prevBoxSizes[id] << ", " << currBoxSizes[currBoxIdBest] <<")";
+            bbBestMatches.insert(ids);
             remainingCurrBoxIdSet.erase(currBoxIdBest);
         }
+        cout <<endl;
     }
 
     // print bbBestMatches
-    cout << "bbBestMatches (prev,curr):";
+    cout << "bbBestMatches {prev,curr}:";
     for (auto x: bbBestMatches){
         int prev_box_id = x.first;
         int curr_box_id = x.second;
         cout << " {" <<prev_box_id <<","<<curr_box_id<<"}";  
     }
     cout << endl;
-
-
 }
