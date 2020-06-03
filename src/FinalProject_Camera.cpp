@@ -87,19 +87,61 @@ void filterLidarPointXOutliers(vector<LidarPoint> &lidarPoints) {
     cout <<"filter lidarPoints.size(): " << lidarPoints.size(); 
     cout <<" mean: " << mean << " variance: " << variance <<" sigma: " << sigma << endl;
 
+    vector<LidarPoint> filtereredLidarPoints;
     for (auto it = lidarPoints.begin(); it != lidarPoints.end(); ++it) {
         double d = (double)it->x -mean;
-        // only interestesd in removing outliers between ego and lidarpoints mean X
-        if (d>=0)
-            continue;
-        // remove outliers - those that are greater then 2 standard deviations
-        if (fabs(d) > sigma *2 ) {
+        // remove outliers between ego and vehicle - those that are greater then 2 standard deviations
+        if (d <= 0.0 && fabs(d) > sigma *2 ) {
             cout << "outlier - d: " << d << " ("<<it->x<<","<<it->y<<","<<it->z<<")"<<endl; 
-            lidarPoints.erase(it);
+        } else {
+            filtereredLidarPoints.push_back((*it));
         }
+         
     }
+    lidarPoints =filtereredLidarPoints;
 }
 
+void showMatchedBoundingBoxes(std::map<int, int> &bbBestMatches, DataFrame &prevFrame, DataFrame &currFrame) {
+    cv::Mat prevImg = prevFrame.cameraImg.clone();
+    cv::putText(prevImg, "prev", cv::Point(0, 0), cv::FONT_ITALIC, 0.75, cv::Scalar(0,0,0),1);
+    cv::Mat currImg = currFrame.cameraImg.clone();
+    cv::putText(prevImg, "curr", cv::Point(0, 0), cv::FONT_ITALIC, 0.75, cv::Scalar(0,0,0),1);
+
+    auto draw_box = [](cv::Mat &img, const BoundingBox &bb, string label, cv::Scalar colour) {
+        // Draw rectangle displaying the bounding box
+        int top, left, width, height;
+        top = bb.roi.y;
+        left = bb.roi.x;
+        width = bb.roi.width;
+        height = bb.roi.height;
+        cv::rectangle(img, cv::Point(left, top), cv::Point(left+width, top+height), colour, 2);
+    
+        // Display label at the top of the bounding box
+        int baseLine;
+        cv::Size labelSize = getTextSize(label, cv::FONT_ITALIC, 0.5, 1, &baseLine);
+        top = max(top, labelSize.height);
+        rectangle(img, cv::Point(left, top - round(1.5*labelSize.height)), cv::Point(left + round(1.5*labelSize.width), top + baseLine), cv::Scalar(255, 255, 255), cv::FILLED);
+        cv::putText(img, label, cv::Point(left, top), cv::FONT_ITALIC, 0.75, cv::Scalar(0,0,0),1);
+            
+    };
+
+    cv::RNG rng(12345);
+    // draw the best bounding box matches on respective image
+    for (auto bbMatch: bbBestMatches) {
+        cv::Scalar colour (rng.uniform(0,255), rng.uniform(0,255), rng.uniform(0,255));
+
+        draw_box(prevImg, prevFrame.boundingBoxes[bbMatch.first], cv::format("%d", bbMatch.first), colour);
+        draw_box(currImg, prevFrame.boundingBoxes[bbMatch.second], cv::format("%d", bbMatch.second), colour);
+    }
+
+    cv::Mat visImg;
+    cv::hconcat(prevImg, currImg, visImg);
+
+    string windowName = "BoundingBox Best Matches";
+    cv::namedWindow(windowName, cv::WINDOW_GUI_EXPANDED);
+    cv::imshow(windowName, visImg);
+    cv::waitKey(0);
+}
 
 /* MAIN PROGRAM */
 int main(int argc, const char *argv[])
@@ -181,8 +223,10 @@ int main(int argc, const char *argv[])
 
         float confThreshold = 0.2;
         float nmsThreshold = 0.4;        
+        bVis = true;
         detectObjects((dataBuffer.end() - 1)->cameraImg, (dataBuffer.end() - 1)->boundingBoxes, confThreshold, nmsThreshold,
                       yoloBasePath, yoloClassesFile, yoloModelConfiguration, yoloModelWeights, bVis);
+        bVis = false;
 
         cout << "#2 : DETECT & CLASSIFY OBJECTS done" << endl;
 
@@ -294,6 +338,9 @@ int main(int argc, const char *argv[])
         cv::Mat descriptors;
         // string descriptorType = "BRISK"; // BRISK, BRIEF, ORB, FREAK, AKAZE, SIFT
         string descriptorType = "BRIEF"; 
+        // string descriptorType = "FREAK"; 
+        // string descriptorType = "BRISK"; 
+        // string descriptorType = "SIFT"; 
         descKeypoints((dataBuffer.end() - 1)->keypoints, (dataBuffer.end() - 1)->cameraImg, descriptors, descriptorType);
 
         // push descriptors for current frame to end of data buffer
@@ -309,8 +356,10 @@ int main(int argc, const char *argv[])
 
             vector<cv::DMatch> matches;
             string matcherType = "MAT_BF";        // MAT_BF, MAT_FLANN
+            // string matcherType = "MAT_FLANN";        // MAT_BF, MAT_FLANN
             string descriptorType = "DES_BINARY"; // DES_BINARY, DES_HOG
-            string selectorType = "SEL_NN";       // SEL_NN, SEL_KNN
+            // string selectorType = "SEL_NN";       // SEL_NN, SEL_KNN
+            string selectorType = "SEL_KNN";       // SEL_NN, SEL_KNN
 
             matchDescriptors((dataBuffer.end() - 2)->keypoints, (dataBuffer.end() - 1)->keypoints,
                              (dataBuffer.end() - 2)->descriptors, (dataBuffer.end() - 1)->descriptors,
@@ -328,6 +377,12 @@ int main(int argc, const char *argv[])
             //// TASK FP.1 -> match list of 3D objects (vector<BoundingBox>) between current and previous frame (implement ->matchBoundingBoxes)
             map<int, int> bbBestMatches;
             matchBoundingBoxes(matches, bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1)); // associate bounding boxes between current and previous frame using keypoint matches
+            bVis = true;
+            if (bVis) {
+                cout << "showMatchedBoundingBoxes" << endl;
+                showMatchedBoundingBoxes(bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1));
+            }
+            bVis = false;
             //// EOF STUDENT ASSIGNMENT
 
             // store matches in current data frame
@@ -367,7 +422,8 @@ int main(int argc, const char *argv[])
                     //// TASK FP.2 -> compute time-to-collision based on Lidar data (implement -> computeTTCLidar)
                     filterLidarPointXOutliers(prevBB->lidarPoints);
                     filterLidarPointXOutliers(currBB->lidarPoints);
-                    bVis = true;
+                    // bVis = true;
+                    bVis = false;
                     if (bVis) {
                         cout << "showLidarTopView currBB" << endl;
                         showLidarTopview(currBB->lidarPoints, "currBB->lidarPoints");
