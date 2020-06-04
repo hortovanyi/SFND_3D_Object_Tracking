@@ -198,8 +198,9 @@ Based on the follwong data the best detector & descriptor combinations were `FAS
 ![3D Chart of TTC Camera by detector-descriptor and image no](output/ttccamerachart.png)
 
 #### table
+
 det-desc/Image|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|
----|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 HARRIS-BRIEF | nan | nan | 10.9782 | 19.4967 | 11.5723 | 14.2744 | 10.0433 | nan | 11.7414 | nan | 13.4327 | 5.6061 | -14.7808 | 6.71705 | 12.5848 | -inf |
 HARRIS-ORB | nan | 10.586 | nan | 10.9782 | 35.3833 | 11.5857 | 13.497 | 10.0433 | nan | nan | 11.7414 | nan | 5.66097 | -14.7808 | 6.6376 | 12.7384 | -inf |
 HARRIS-FREAK | nan | nan | 10.9782 | 39.584 | nan | 12.9162 | nan | -inf | 12.245 | nan | nan | -inf | 6.71705 | nan |
