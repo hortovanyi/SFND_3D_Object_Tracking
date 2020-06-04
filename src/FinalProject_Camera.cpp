@@ -223,7 +223,8 @@ int main(int argc, const char *argv[])
 
         float confThreshold = 0.2;
         float nmsThreshold = 0.4;        
-        bVis = true;
+        // bVis = true;
+        bVis = false;
         detectObjects((dataBuffer.end() - 1)->cameraImg, (dataBuffer.end() - 1)->boundingBoxes, confThreshold, nmsThreshold,
                       yoloBasePath, yoloClassesFile, yoloModelConfiguration, yoloModelWeights, bVis);
         bVis = false;
@@ -377,7 +378,8 @@ int main(int argc, const char *argv[])
             //// TASK FP.1 -> match list of 3D objects (vector<BoundingBox>) between current and previous frame (implement ->matchBoundingBoxes)
             map<int, int> bbBestMatches;
             matchBoundingBoxes(matches, bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1)); // associate bounding boxes between current and previous frame using keypoint matches
-            bVis = true;
+            // bVis = true;
+            bVis = false;
             if (bVis) {
                 cout << "showMatchedBoundingBoxes" << endl;
                 showMatchedBoundingBoxes(bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1));
@@ -420,10 +422,20 @@ int main(int argc, const char *argv[])
                 {
                     //// STUDENT ASSIGNMENT
                     //// TASK FP.2 -> compute time-to-collision based on Lidar data (implement -> computeTTCLidar)
+                    bVis = true;
+                    // // bVis = false;
+                    // if (bVis) {
+                    //     cout << "showLidarTopView currBB" << endl;
+                    //     showLidarTopview(currBB->lidarPoints, "Unfiltered currBB->lidarPoints");
+                    //     cout << "showLidarTopView prevBB" << endl;
+                    //     showLidarTopview(prevBB->lidarPoints, "Unfiltered prevBB->lidarPoints");
+                    //     cout << "showLidarTopView continuing ..." << endl;
+                    // }
+                    // bVis = false;
                     filterLidarPointXOutliers(prevBB->lidarPoints);
                     filterLidarPointXOutliers(currBB->lidarPoints);
-                    // bVis = true;
-                    bVis = false;
+                    bVis = true;
+                    // bVis = false;
                     if (bVis) {
                         cout << "showLidarTopView currBB" << endl;
                         showLidarTopview(currBB->lidarPoints, "currBB->lidarPoints");
