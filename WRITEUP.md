@@ -231,3 +231,42 @@ SIFT-ORB | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | -
 SIFT-FREAK | 11.2638 | 13.616 | 13.5454 | 20.5163 | 15.1633 | 11.9744 | 14.4148 | 13.1874 | 13.5536 | 11.3849 | 12.7472 | 11.0597 | 10.0661 | 9.77994 | 8.98705 | 8.72439 | 9.28324 | 9.40822 |
 SIFT-AKAZE | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
 SIFT-SIFT | 11.3868 | 12.5726 | 12.8458 | 19.5915 | 12.598 | 11.2969 | 13.5735 | 14.6937 | 11.3792 | 11.2887 | 11.4078 | 10.0081 | 10.5754 | 10.0732 | 9.05267 | 8.69186 | 8.9237 |
+
+### Final Result Examination 1
+
+The HARRIS-SIFT combination has performed poorly for the purposes of a Time To Collision Calculation
+
+![HARRIS-SIFT TTC Camera 568.322](output/FinalResultsS2HARRIS-SIFT_TTC_screenshot_04.06.2020.png)
+
+There were few keypoint matches for each bounding box
+```
+prev boxId (KeyPoint size)s: 0 (17) 1 (13) 2 (24) 3 (19) 4 (14) 5 (8) 6 (1) 7 (1) 8 (4)
+curr boxId (KeyPoint size)s: 0 (17) 1 (13) 2 (12) 3 (22) 4 (35) 5 (8) 6 (1) 7 (5)
+bounding box max keypoints {prev,curr} (n_keypoints): {0,0}(17) {0,3}(6) {1,2}(12) {1,4}(5) {2,2}(6) {2,4}(21) {3,0}(4) {3,3}(17) {4,1}(13) {4,7}(3) {5,3}(3) {5,5}(8) {6,6}(1) {7,0}(1) {8,1}(2) {8,7}(4)
+```
+
+It resulted in poor bounding box matches as clearly they were many false positives.
+![HARRIS-SIFT TTC bounding box matches](output/FinalResultsS2HARRIS-SIFTBoundingBoxBestMatches_screenshot_04.06.2020.png)
+
+The bounding boxes should match with the correct colour. Instead we had the proceeding vehicle in the ego lane with boxId 4, matched to the truck in the right lane
+
+```
+bbBestMatches {prev,curr}: {0,0} {1,2} {2,4} {3,3} {4,1} {5,5} {6,6} {8,7}
+```
+
+### Final Result Examination 2
+
+The ORB-FREAK combination resulted in the only negative Time To Collision calculation.
+
+![ORB-FREAK TTC Camera -545.044](output/FinalResultsS2ORB_FREAKTTC_screenshot_04.06.2020.png)
+
+Again there were relatively few keypoint matches.
+```
+prev boxId (KeyPoint size)s: 0 (7) 1 (20) 2 (13) 3 (16) 4 (25) 5 (2) 6 (13) 7 (14) 8 (2)
+curr boxId (KeyPoint size)s: 0 (7) 1 (13) 2 (20) 3 (36) 4 (25) 5 (3) 6 (13) 7 (14)
+bounding box max keypoints {prev,curr} (n_keypoints): {0,0}(7) {0,2}(4) {1,0}(4) {1,2}(20) {1,7}(8) {2,1}(13) {2,3}(9) {3,1}(7) {3,3}(16) {4,4}(25) {4,5}(2) {4,6}(3) {5,4}(2) {5,5}(2) {6,2}(12) {6,7}(9) {7,4}(3) {7,6}(13) {8,2}(1) {8,7}(2)
+```
+However the bounding boxes (4 to 4) were matched correctly per 
+![ORB-FREAK TTC bounding box matches](output/FinalResultsS2ORB_FREAKBoundingBoxBestMatches_screenshot_04.06.2020.png)
+
+Looking at the formula `TTC = -dT / (1 - medDistRatio)` means for -TTC we had a `medDistRatio` < 1. This happens when we have a small number of near euclidean distances matches between the images that were usable. 

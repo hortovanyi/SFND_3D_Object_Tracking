@@ -195,6 +195,9 @@ int main(int argc, const char *argv[])
     deque<DataFrame> dataBuffer; // list of data frames which are held in memory at the same time
     bool bVis = false;            // visualize results
 
+    // statistics 
+    vector<pair<string,float>> TTCCameraData;
+
     /* MAIN LOOP OVER ALL IMAGES */
 
     for (size_t imgIndex = 0; imgIndex <= imgEndIndex - imgStartIndex; imgIndex+=imgStepWidth)
@@ -284,6 +287,8 @@ int main(int argc, const char *argv[])
         string detectorType = "FAST";
         // string detectorType = "HARRIS";
         // string detectorType = "SHITOMASI";
+        if (argc == 3)
+            detectorType = argv[1];
 
         if (detectorType.compare("SHITOMASI") == 0)
         {
@@ -342,6 +347,10 @@ int main(int argc, const char *argv[])
         // string descriptorType = "FREAK"; 
         // string descriptorType = "BRISK"; 
         // string descriptorType = "SIFT"; 
+
+        if (argc == 3)
+            descriptorType = argv[2];
+
         descKeypoints((dataBuffer.end() - 1)->keypoints, (dataBuffer.end() - 1)->cameraImg, descriptors, descriptorType);
 
         // push descriptors for current frame to end of data buffer
@@ -358,7 +367,6 @@ int main(int argc, const char *argv[])
             vector<cv::DMatch> matches;
             string matcherType = "MAT_BF";        // MAT_BF, MAT_FLANN
             // string matcherType = "MAT_FLANN";        // MAT_BF, MAT_FLANN
-            string descriptorType = "DES_BINARY"; // DES_BINARY, DES_HOG
             // string selectorType = "SEL_NN";       // SEL_NN, SEL_KNN
             string selectorType = "SEL_KNN";       // SEL_NN, SEL_KNN
 
@@ -378,8 +386,8 @@ int main(int argc, const char *argv[])
             //// TASK FP.1 -> match list of 3D objects (vector<BoundingBox>) between current and previous frame (implement ->matchBoundingBoxes)
             map<int, int> bbBestMatches;
             matchBoundingBoxes(matches, bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1)); // associate bounding boxes between current and previous frame using keypoint matches
-            // bVis = true;
-            bVis = false;
+            bVis = true;
+            // bVis = false;
             if (bVis) {
                 cout << "showMatchedBoundingBoxes" << endl;
                 showMatchedBoundingBoxes(bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1));
@@ -422,7 +430,7 @@ int main(int argc, const char *argv[])
                 {
                     //// STUDENT ASSIGNMENT
                     //// TASK FP.2 -> compute time-to-collision based on Lidar data (implement -> computeTTCLidar)
-                    bVis = true;
+                    // bVis = true;
                     // // bVis = false;
                     // if (bVis) {
                     //     cout << "showLidarTopView currBB" << endl;
@@ -434,8 +442,8 @@ int main(int argc, const char *argv[])
                     // bVis = false;
                     filterLidarPointXOutliers(prevBB->lidarPoints);
                     filterLidarPointXOutliers(currBB->lidarPoints);
-                    bVis = true;
-                    // bVis = false;
+                    // bVis = true;
+                    bVis = false;
                     if (bVis) {
                         cout << "showLidarTopView currBB" << endl;
                         showLidarTopview(currBB->lidarPoints, "currBB->lidarPoints");
@@ -452,12 +460,19 @@ int main(int argc, const char *argv[])
                     //// STUDENT ASSIGNMENT
                     //// TASK FP.3 -> assign enclosed keypoint matches to bounding box (implement -> clusterKptMatchesWithROI)
                     //// TASK FP.4 -> compute time-to-collision based on camera (implement -> computeTTCCamera)
-                    double ttcCamera;
                     clusterKptMatchesWithROI(*currBB, (dataBuffer.end() - 2)->keypoints, (dataBuffer.end() - 1)->keypoints, (dataBuffer.end() - 1)->kptMatches);                    
+                    
+                    string detDescName = detectorType+"-"+descriptorType;
+                    cout << "TTC Camera " << detDescName;
+                    double ttcCamera;
                     computeTTCCamera((dataBuffer.end() - 2)->keypoints, (dataBuffer.end() - 1)->keypoints, currBB->kptMatches, sensorFrameRate, ttcCamera);
+                    cout << " imgIndex: "<<imgIndex  << " " << ttcCamera << endl;
+                    TTCCameraData.push_back({detDescName,ttcCamera});
+
                     //// EOF STUDENT ASSIGNMENT
 
                     bVis = true;
+                    // bVis = false;
                     if (bVis)
                     {
                         cv::Mat visImg = (dataBuffer.end() - 1)->cameraImg.clone();
@@ -482,6 +497,12 @@ int main(int argc, const char *argv[])
         }
 
     } // eof loop over all images
+
+    cout << "TTCCamera " << TTCCameraData[0].first;
+    for (auto x: TTCCameraData) {
+        cout << " | " << x.second;
+    }
+    cout << " |" << endl;
 
     return 0;
 }
